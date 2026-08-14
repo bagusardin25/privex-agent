@@ -1,7 +1,15 @@
+import { existsSync } from "node:fs";
 import { defineConfig } from "hardhat/config";
 import hardhatToolboxMochaEthers from "@nomicfoundation/hardhat-toolbox-mocha-ethers";
 
-const DEPLOYER_PRIVATE_KEY = process.env.DEPLOYER_PRIVATE_KEY || "";
+// Hardhat 3 does not read .env files on its own (unlike Next.js), so load the
+// same .env.local the app uses. Real env vars still win.
+if (existsSync(".env.local")) {
+  process.loadEnvFile(".env.local");
+}
+
+const rawKey = (process.env.DEPLOYER_PRIVATE_KEY || "").trim();
+const DEPLOYER_PRIVATE_KEY = rawKey === "" ? "" : rawKey.startsWith("0x") ? rawKey : `0x${rawKey}`;
 
 export default defineConfig({
   plugins: [hardhatToolboxMochaEthers],

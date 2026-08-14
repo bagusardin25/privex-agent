@@ -3,8 +3,15 @@ import hre from "hardhat";
 async function main() {
   console.log("🚀 Deploying PortfolioActionAgent to Flare Testnet (Coston2)...\n");
 
-  const connection = await hre.network.connect("coston2");
+  const connection = await hre.network.create("coston2");
   const [deployer] = await connection.ethers.getSigners();
+
+  if (deployer === undefined) {
+    console.error("❌ No deployer account configured.");
+    console.error("   Set DEPLOYER_PRIVATE_KEY in .env.local, then re-run this script.");
+    process.exit(1);
+  }
+
   const balance = await connection.ethers.provider.getBalance(deployer.address);
 
   console.log("Deployer address:", deployer.address);
