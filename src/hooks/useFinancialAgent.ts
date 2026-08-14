@@ -1,145 +1,433 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import { useAccount, useWalletClient, usePublicClient, useSwitchChain } from 'wagmi';
+import { useCallback, useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { useConnection, useSendTransaction, useWaitForTransactionReceipt } from 'wagmi';
 import { flareTestnet } from '@/lib/blockchain/config';
-import { PORTFOLIO_ACTION_AGENT_ABI, ACTION_TYPE_MAP } from '@/lib/blockchain/contracts';
-import { keccak256, toHex, encodeFunctionData, parseEther } from 'viem';
 import type {
-  Portfolio,
-  FinancialIntent,
-  ConfidentialResult,
-  Recommendation,
-  TransactionResult,
   ActivityStep,
   ApiResponse,
+  ChatMessage,
+  ConfidentialResult,
+  FinancialIntent,
+  Portfolio,
+  Recommendation,
+  TransactionResult,
 } from '@/types';
 
-export const DEMO_WALLET_ADDRESS = '0x8ba1f109551bD432803012645Ac136ddd64DBA72';
+export type AgentMode = 'demo' | 'live';
+export type WorkspaceTab = 'overview' | 'audit' | 'enclave';
 
-const INITIAL_TIMELINE: ActivityStep[] = [
-  {
-    id: 'step-1',
-    label: '1. Instruction Input',
-    status: 'pending',
-    detail: 'Awaiting user strategy prompt in natural language',
-  },
-  {
-    id: 'step-2',
-    label: '2. AI Intent Extraction',
-    status: 'pending',
-    detail: 'LLM translates prompt into strictly validated JSON schema',
-  },
-  {
-    id: 'step-3',
-    label: '3. Confidential Analysis',
-    status: 'pending',
-    detail: 'Sensitive portfolio evaluated inside Flare TEE Enclave',
-  },
-  {
-    id: 'step-4',
-    label: '4. Deterministic Risk Recommendation',
-    status: 'pending',
-    detail: 'Rules evaluated by deterministic risk engine',
-  },
-  {
-    id: 'step-5',
-    label: '5. Explicit User Approval',
-    status: 'pending',
-    detail: 'User reviews and signs off on on-chain parameters',
-  },
-  {
-    id: 'step-6',
-    label: '6. Flare Smart Contract Dispatch',
-    status: 'pending',
-    detail: 'Action recorded on Flare Coston2 testnet',
-  },
-  {
-    id: 'step-7',
-    label: '7. Final Settlement & Rebalance',
-    status: 'pending',
-    detail: 'Portfolio state synchronized and verified',
-  },
-];
+/** Stand-in wallet used in demo mode so the flow is explorable without a wallet. */
+export const DEMO_ADDRESS = '0x1111111111111111111111111111111111111111';
 
+type PreparedTransaction = {
+  to: string;
+  data: string;
+  chainId: number;
+  gasEstimate?: string;
+};
+
+/** The four stages of the agent journey, in the order the timeline shows them. */
+const STEP_IDS = ['parse', 'analyze', 'recommend', 'execute'] as const;
+
+const STEP_LABELS: Record<(typeof STEP_IDS)[number], string> = {
+  parse: 'Interpret instruction',
+  analyze: 'Confidential risk analysis',
+  recommend: 'Generate recommendation',
+  execute: 'Record action on Flare',
+};
+
+function initialTimeline(): ActivityStep[] {
+  return STEP_IDS.map((id) => ({ id, label: STEP_LABELS[id], status: 'pending' }));
+}
+
+function newId(): string {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID();
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function describeIntent(intent: FinancialIntent): string {
+  const pct = Math.round(intent.maxExposure * 100);
+  const verb = intent.action.replace(/_/g, ' ').toLowerCase();
+  return `Understood. I read that as **${verb}** on **${intent.asset}**, capping exposure at **${pct}%** under a **${intent.riskProfile}** risk profile. Running the analysis inside the confidential enclave now — your balances never leave it.`;
+}
+
+/**
+ * Orchestrates the full agent journey:
+ *   instruction -> intent -> confidential analysis -> recommendation -> on-chain record
+ *
+ * The LLM only ever produces the intent. Every number that reaches the chain
+ * comes from the deterministic risk engine on the server.
+ */
 export function useFinancialAgent() {
-  const { address: connectedAddress, isConnected, chain } = useAccount();
-  const { data: walletClient } = useWalletClient();
-  const publicClient = usePublicClient();
-  const { switchChain } = useSwitchChain();
+  const connection = useConnection();
+  const walletAddress = connection.address;
+  const isWalletConnected = connection.isConnected;
+  const connectedChainId = connection.chainId;
 
-  const [mode, setMode] = useState<'demo' | 'live'>('demo');
-  const [activeAddress, setActiveAddress] = useState<string>(DEMO_WALLET_ADDRESS);
+  const [mode, setMode] = useState<AgentMode>('demo');
+  const [activeTab, setActiveTab] = useState<WorkspaceTab>('overview');
 
-  const [portfolio, setPortfolio] = useState<Portfolio | null>(null);
-  const [isPortfolioLoading, setIsPortfolioLoading] = useState<boolean>(true);
-
-  const [currentPrompt, setCurrentPrompt] = useState<string>('');
+  // ── Agent workflow ─────────────────────────────────────────────────────
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [currentPrompt, setCurrentPrompt] = useState('');
   const [currentIntent, setCurrentIntent] = useState<FinancialIntent | null>(null);
-  const [isParsingIntent, setIsParsingIntent] = useState<boolean>(false);
+  const [isParsingIntent, setIsParsingIntent] = useState(false);
 
   const [confidentialAnalysis, setConfidentialAnalysis] = useState<ConfidentialResult | null>(null);
-  const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
 
   const [recommendation, setRecommendation] = useState<Recommendation | null>(null);
-  const [isGeneratingRecommendation, setIsGeneratingRecommendation] = useState<boolean>(false);
+  const [isGeneratingRecommendation, setIsGeneratingRecommendation] = useState(false);
 
-  const [isApprovalModalOpen, setIsApprovalModalOpen] = useState<boolean>(false);
-  const [isExecuting, setIsExecuting] = useState<boolean>(false);
+  // ── Execution ──────────────────────────────────────────────────────────
+  const [isApprovalModalOpen, setIsApprovalModalOpen] = useState(false);
+  const [isExecuting, setIsExecuting] = useState(false);
   const [executionResult, setExecutionResult] = useState<TransactionResult | null>(null);
   const [executionError, setExecutionError] = useState<string | null>(null);
+  const [preparedTx, setPreparedTx] = useState<PreparedTransaction | null>(null);
 
-  const [timeline, setTimeline] = useState<ActivityStep[]>(INITIAL_TIMELINE);
-  const [activeTab, setActiveTab] = useState<'overview' | 'audit' | 'enclave'>('overview');
+  const [timeline, setTimeline] = useState<ActivityStep[]>(initialTimeline);
 
-  // Update active address based on connection and mode
-  useEffect(() => {
-    if (mode === 'live' && isConnected && connectedAddress) {
-      setActiveAddress(connectedAddress);
-    } else {
-      setActiveAddress(DEMO_WALLET_ADDRESS);
-    }
-  }, [mode, isConnected, connectedAddress]);
+  const { sendTransactionAsync } = useSendTransaction();
+  const [pendingHash, setPendingHash] = useState<`0x${string}` | undefined>(undefined);
+  const receipt = useWaitForTransactionReceipt({ hash: pendingHash });
 
-  // Update timeline step status helper
-  const updateTimeline = useCallback((stepId: string, status: ActivityStep['status'], detail?: string) => {
+  // In demo mode the flow runs against a fixed address so it is explorable
+  // without a wallet; in live mode it follows the connected account.
+  const activeAddress = mode === 'demo' ? DEMO_ADDRESS : walletAddress;
+  const isOnWrongNetwork =
+    mode === 'live' && isWalletConnected && connectedChainId !== flareTestnet.id;
+
+  const updateStep = useCallback((id: string, patch: Partial<ActivityStep>) => {
     setTimeline((prev) =>
-      prev.map((step) => {
-        if (step.id === stepId) {
-          return {
-            ...step,
-            status,
-            timestamp: new Date().toLocaleTimeString(),
-            detail: detail || step.detail,
-          };
-        }
-        return step;
-      })
+      prev.map((step) =>
+        step.id === id ? { ...step, ...patch, timestamp: new Date().toISOString() } : step
+      )
     );
   }, []);
 
-  // Fetch portfolio data
-  const loadPortfolio = useCallback(async (addressToFetch: string) => {
-    setIsPortfolioLoading(true);
-    try {
-      const res = await fetch(`/api/portfolio?wallet=${addressToFetch}`);
-      const data: ApiResponse<Portfolio> = await res.json();
-      if (data.success && data.data) {
-        setPortfolio(data.data);
-      }
-    } catch (err) {
-      console.error('Failed to load portfolio:', err);
-    } finally {
-      setIsPortfolioLoading(false);
-    }
+  const pushMessage = useCallback((message: Omit<ChatMessage, 'id' | 'timestamp'>) => {
+    const full: ChatMessage = { ...message, id: newId(), timestamp: new Date().toISOString() };
+    setMessages((prev) => [...prev, full]);
+    return full.id;
   }, []);
 
-  // Initial portfolio fetch
-  useEffect(() => {
-    loadPortfolio(activeAddress);
-  }, [activeAddress, loadPortfolio]);
+  const replaceMessage = useCallback((id: string, patch: Partial<ChatMessage>) => {
+    setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, ...patch } : m)));
+  }, []);
 
-  // Reset entire workflow
+  // ── Portfolio ──────────────────────────────────────────────────────────
+  // Fetching lives in TanStack Query rather than an effect: it keys off the
+  // active address, so switching demo/live or wallet refetches on its own, and
+  // there is no state to clear when the address goes away.
+  const portfolioQuery = useQuery({
+    queryKey: ['portfolio', activeAddress],
+    enabled: Boolean(activeAddress),
+    queryFn: async ({ signal }): Promise<Portfolio> => {
+      const res = await fetch(`/api/portfolio?wallet=${activeAddress}`, { signal });
+      const json: ApiResponse<Portfolio> = await res.json();
+      if (!json.success || !json.data) throw new Error(json.error || 'Failed to load portfolio');
+      return json.data;
+    },
+  });
+
+  const portfolio = activeAddress ? (portfolioQuery.data ?? null) : null;
+  const isPortfolioLoading = portfolioQuery.isPending && Boolean(activeAddress);
+  const portfolioError = portfolioQuery.error
+    ? portfolioQuery.error.message || 'Failed to load portfolio'
+    : null;
+
+  // ── The main journey ───────────────────────────────────────────────────
+  const submitInstruction = useCallback(
+    async (message: string) => {
+      const instruction = message.trim();
+      if (!instruction) return;
+      if (!activeAddress) {
+        setExecutionError('Connect a wallet or switch to demo mode before sending an instruction.');
+        return;
+      }
+
+      // A fresh instruction supersedes any earlier result.
+      setCurrentPrompt(instruction);
+      setCurrentIntent(null);
+      setConfidentialAnalysis(null);
+      setRecommendation(null);
+      setExecutionResult(null);
+      setExecutionError(null);
+      setPreparedTx(null);
+      setTimeline(initialTimeline());
+
+      pushMessage({ role: 'user', content: instruction });
+      const agentMessageId = pushMessage({
+        role: 'agent',
+        content: 'Interpreting your instruction…',
+        isPending: true,
+      });
+
+      // Step 1 — the LLM turns language into a structured intent, nothing more.
+      setIsParsingIntent(true);
+      updateStep('parse', { status: 'active' });
+
+      let intent: FinancialIntent;
+      try {
+        const res = await fetch('/api/ai/parse-intent', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: instruction }),
+        });
+        const json: ApiResponse<FinancialIntent> = await res.json();
+        if (!json.success || !json.data) throw new Error(json.error || 'Could not parse intent');
+        intent = json.data;
+      } catch (err) {
+        const detail = err instanceof Error ? err.message : 'Could not parse that instruction';
+        updateStep('parse', { status: 'error', detail });
+        replaceMessage(agentMessageId, {
+          content: `I couldn't turn that into a financial intent. ${detail}`,
+          isPending: false,
+          isError: true,
+        });
+        setExecutionError(detail);
+        setIsParsingIntent(false);
+        return;
+      }
+
+      setCurrentIntent(intent);
+      setIsParsingIntent(false);
+      updateStep('parse', {
+        status: 'completed',
+        detail: `${intent.action} · ${intent.asset} · max ${Math.round(intent.maxExposure * 100)}%`,
+      });
+      replaceMessage(agentMessageId, {
+        content: describeIntent(intent),
+        intent,
+        isPending: false,
+      });
+
+      // Step 2 — analysis runs inside the confidential provider.
+      setIsAnalyzing(true);
+      updateStep('analyze', { status: 'active' });
+
+      let analysis: ConfidentialResult;
+      try {
+        const res = await fetch('/api/portfolio/analyze', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ walletAddress: activeAddress, intent }),
+        });
+        const json: ApiResponse<ConfidentialResult> = await res.json();
+        if (!json.success || !json.data) throw new Error(json.error || 'Analysis failed');
+        analysis = json.data;
+      } catch (err) {
+        const detail = err instanceof Error ? err.message : 'Confidential analysis failed';
+        updateStep('analyze', { status: 'error', detail });
+        setExecutionError(detail);
+        setIsAnalyzing(false);
+        pushMessage({ role: 'agent', content: detail, isError: true });
+        return;
+      }
+
+      setConfidentialAnalysis(analysis);
+      setIsAnalyzing(false);
+      updateStep('analyze', {
+        status: 'completed',
+        detail: analysis.result.isCompliant
+          ? 'Portfolio is within your stated limits'
+          : `${analysis.result.violations.length} limit breach detected`,
+      });
+
+      // Step 3 — the deterministic risk engine produces the recommendation.
+      setIsGeneratingRecommendation(true);
+      updateStep('recommend', { status: 'active' });
+
+      try {
+        const res = await fetch('/api/recommendation', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ walletAddress: activeAddress, intent }),
+        });
+        const json: ApiResponse<{ recommendation: Recommendation }> = await res.json();
+        if (!json.success || !json.data) throw new Error(json.error || 'Recommendation failed');
+
+        const rec = json.data.recommendation;
+        setRecommendation(rec);
+        updateStep('recommend', {
+          status: 'completed',
+          detail: `${rec.recommendedAction} ${rec.asset} → ${Math.round(rec.targetExposure * 100)}%`,
+        });
+
+        const summary = rec.issues.length
+          ? `${rec.issues.join(' ')} I recommend a **${rec.recommendedAction.replace(/_/g, ' ').toLowerCase()}** on ${rec.asset}, moving exposure from ${Math.round(rec.currentExposure * 100)}% to ${Math.round(rec.targetExposure * 100)}%. Review it on the right and approve if you agree — nothing goes on-chain until you sign.`
+          : `Your ${rec.asset} exposure of ${Math.round(rec.currentExposure * 100)}% is already within your ${Math.round(rec.targetExposure * 100)}% limit. No rebalancing is needed, but you can still record this check on-chain.`;
+
+        pushMessage({ role: 'agent', content: summary });
+      } catch (err) {
+        const detail = err instanceof Error ? err.message : 'Recommendation failed';
+        updateStep('recommend', { status: 'error', detail });
+        setExecutionError(detail);
+        pushMessage({ role: 'agent', content: detail, isError: true });
+      } finally {
+        setIsGeneratingRecommendation(false);
+      }
+    },
+    [activeAddress, pushMessage, replaceMessage, updateStep]
+  );
+
+  /**
+   * Asks the server to prepare the calldata for the approved action.
+   * The server owns the action→enum and exposure→bps mapping, so the client
+   * never fabricates what gets written on chain.
+   */
+  const prepareTransaction = useCallback(async (): Promise<PreparedTransaction | null> => {
+    if (!recommendation || !activeAddress) return null;
+    try {
+      const res = await fetch('/api/execute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          recommendationId: recommendation.id,
+          walletAddress: activeAddress,
+          action: recommendation.recommendedAction,
+          asset: recommendation.asset,
+          targetExposure: recommendation.targetExposure,
+        }),
+      });
+      const json: ApiResponse<{ transaction: PreparedTransaction }> = await res.json();
+      if (!json.success || !json.data) throw new Error(json.error || 'Could not prepare transaction');
+      setPreparedTx(json.data.transaction);
+      return json.data.transaction;
+    } catch (err) {
+      setExecutionError(err instanceof Error ? err.message : 'Could not prepare transaction');
+      return null;
+    }
+  }, [recommendation, activeAddress]);
+
+  /**
+   * Opens the approval modal and prepares the calldata in the same gesture, so
+   * the modal can show exactly what will be written before the user commits.
+   * Preparing here (an event) rather than in an effect avoids a cascading
+   * render and keeps the request tied to the user's actual intent.
+   */
+  const openApproval = useCallback(() => {
+    setIsApprovalModalOpen(true);
+    if (recommendation && !preparedTx) void prepareTransaction();
+  }, [recommendation, preparedTx, prepareTransaction]);
+
+  const executeApprovedAction = useCallback(async () => {
+    if (!recommendation || !activeAddress) return;
+
+    setIsExecuting(true);
+    setExecutionError(null);
+    updateStep('execute', { status: 'active' });
+
+    try {
+      if (mode === 'demo') {
+        // Demo mode never touches a wallet. The hash is clearly synthetic and
+        // the receipt labels it as simulated so nobody mistakes it for real.
+        await new Promise((resolve) => setTimeout(resolve, 1200));
+        const simulatedHash = `0xdem0${newId().replace(/-/g, '').slice(0, 59)}`;
+        setExecutionResult({
+          success: true,
+          transactionHash: simulatedHash,
+          network: 'Flare Testnet (Coston2) — simulated',
+          explorerUrl: '',
+          action: recommendation.recommendedAction,
+          asset: recommendation.asset,
+          previousExposure: recommendation.currentExposure,
+          newExposure: recommendation.targetExposure,
+          timestamp: new Date().toISOString(),
+        });
+        updateStep('execute', { status: 'completed', detail: 'Simulated — no chain write' });
+        setIsApprovalModalOpen(false);
+        pushMessage({
+          role: 'agent',
+          content:
+            'Recorded in demo mode. No transaction was broadcast and no funds moved. Switch to live mode with a funded Coston2 wallet to write this to Flare for real.',
+        });
+        return;
+      }
+
+      // Live mode — the user's own wallet signs and broadcasts.
+      if (!isWalletConnected) throw new Error('Connect your wallet to record this action.');
+      if (isOnWrongNetwork) throw new Error('Switch your wallet to Flare Coston2 (chain 114).');
+
+      const tx = preparedTx ?? (await prepareTransaction());
+      if (!tx) throw new Error('Transaction could not be prepared.');
+
+      const hash = await sendTransactionAsync({
+        to: tx.to as `0x${string}`,
+        data: tx.data as `0x${string}`,
+        chainId: flareTestnet.id,
+      });
+
+      setPendingHash(hash);
+      setExecutionResult({
+        success: true,
+        transactionHash: hash,
+        network: 'Flare Testnet (Coston2)',
+        explorerUrl: `${flareTestnet.blockExplorers.default.url}/tx/${hash}`,
+        action: recommendation.recommendedAction,
+        asset: recommendation.asset,
+        previousExposure: recommendation.currentExposure,
+        newExposure: recommendation.targetExposure,
+        timestamp: new Date().toISOString(),
+      });
+      updateStep('execute', { status: 'active', detail: 'Broadcast — waiting for confirmation' });
+      setIsApprovalModalOpen(false);
+      pushMessage({
+        role: 'agent',
+        content: `Transaction broadcast to Flare Coston2. Waiting for confirmation — you can follow it on the explorer from the receipt below.`,
+      });
+    } catch (err) {
+      // Wallet rejections are a normal outcome, not a system failure.
+      const raw = err instanceof Error ? err.message : 'Transaction failed';
+      const detail = /user rejected|denied|rejected the request/i.test(raw)
+        ? 'You rejected the transaction in your wallet. Nothing was recorded.'
+        : raw;
+      setExecutionError(detail);
+      updateStep('execute', { status: 'error', detail });
+      pushMessage({ role: 'agent', content: detail, isError: true });
+    } finally {
+      setIsExecuting(false);
+    }
+  }, [
+    recommendation,
+    activeAddress,
+    mode,
+    isWalletConnected,
+    isOnWrongNetwork,
+    preparedTx,
+    prepareTransaction,
+    sendTransactionAsync,
+    updateStep,
+    pushMessage,
+  ]);
+
+  // The receipt is external state owned by wagmi, so the confirmed outcome is
+  // derived from it at render time rather than copied back into our own state.
+  const receiptData = receipt.data;
+  const isReverted = Boolean(pendingHash && receiptData && receiptData.status !== 'success');
+
+  const effectiveTimeline = useMemo(() => {
+    if (!pendingHash || !receiptData) return timeline;
+    const success = receiptData.status === 'success';
+    return timeline.map((step) =>
+      step.id === 'execute'
+        ? {
+            ...step,
+            status: success ? ('completed' as const) : ('error' as const),
+            detail: success
+              ? `Confirmed in block ${receiptData.blockNumber}`
+              : 'Transaction reverted on-chain',
+          }
+        : step
+    );
+  }, [timeline, pendingHash, receiptData]);
+
+  const effectiveError =
+    executionError ?? (isReverted ? 'The transaction reverted on-chain.' : null);
+
   const resetWorkflow = useCallback(() => {
     setCurrentPrompt('');
     setCurrentIntent(null);
@@ -147,248 +435,97 @@ export function useFinancialAgent() {
     setRecommendation(null);
     setExecutionResult(null);
     setExecutionError(null);
+    setPreparedTx(null);
+    setPendingHash(undefined);
     setIsApprovalModalOpen(false);
-    setTimeline(INITIAL_TIMELINE);
-    loadPortfolio(activeAddress);
-  }, [activeAddress, loadPortfolio]);
+    setMessages([]);
+    setTimeline(initialTimeline());
+  }, []);
 
-  // Submit natural language instruction
-  const submitInstruction = useCallback(
-    async (promptText: string) => {
-      const promptToUse = promptText.trim();
-      if (!promptToUse) return;
+  const isBusy =
+    isParsingIntent || isAnalyzing || isGeneratingRecommendation || isExecuting;
 
-      setCurrentPrompt(promptToUse);
-      setIsParsingIntent(true);
-      setExecutionError(null);
-      setExecutionResult(null);
+  return useMemo(
+    () => ({
+      // mode + identity
+      mode,
+      setMode,
+      activeAddress,
+      walletAddress,
+      isWalletConnected,
+      isOnWrongNetwork,
 
-      // Step 1: Input Received
-      updateTimeline('step-1', 'completed', `User prompt: "${promptToUse}"`);
-      updateTimeline('step-2', 'active', 'Parsing natural language with AI interpreter...');
+      // portfolio
+      portfolio,
+      isPortfolioLoading,
+      portfolioError,
+      reloadPortfolio: () => void portfolioQuery.refetch(),
 
-      try {
-        // Parse Intent with AI API
-        const intentRes = await fetch('/api/ai/parse-intent', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message: promptToUse }),
-        });
+      // chat + intent
+      messages,
+      currentPrompt,
+      currentIntent,
+      isParsingIntent,
 
-        const intentData: ApiResponse<FinancialIntent> = await intentRes.json();
+      // analysis + recommendation
+      confidentialAnalysis,
+      isAnalyzing,
+      recommendation,
+      isGeneratingRecommendation,
 
-        if (!intentData.success || !intentData.data) {
-          throw new Error(intentData.error || 'Failed to parse strategy intent');
-        }
+      // execution
+      isApprovalModalOpen,
+      setIsApprovalModalOpen,
+      openApproval,
+      isExecuting,
+      executionResult,
+      executionError: effectiveError,
+      preparedTx,
+      isConfirming: Boolean(pendingHash) && receipt.isLoading,
 
-        const parsedIntent = intentData.data;
-        setCurrentIntent(parsedIntent);
-        updateTimeline(
-          'step-2',
-          'completed',
-          `Parsed: Target ${parsedIntent.asset} <= ${(parsedIntent.maxExposure * 100).toFixed(0)}% (${parsedIntent.riskProfile} Risk)`
-        );
+      // shell
+      timeline: effectiveTimeline,
+      activeTab,
+      setActiveTab,
+      isBusy,
 
-        // Step 3: Run Confidential Analysis
-        updateTimeline('step-3', 'active', 'Evaluating portfolio securely within TEE boundary...');
-        setIsAnalyzing(true);
-
-        const analyzeRes = await fetch('/api/portfolio/analyze', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            walletAddress: activeAddress,
-            intent: parsedIntent,
-          }),
-        });
-
-        const analyzeData: ApiResponse<ConfidentialResult & { providerMode: string }> = await analyzeRes.json();
-
-        if (!analyzeData.success || !analyzeData.data) {
-          throw new Error(analyzeData.error || 'Confidential analysis failed');
-        }
-
-        setConfidentialAnalysis(analyzeData.data);
-        updateTimeline(
-          'step-3',
-          'completed',
-          `Analysis Hash: ${analyzeData.data.analysisHash.slice(0, 14)}... (Mode: ${analyzeData.data.provider})`
-        );
-
-        // Step 4: Deterministic Recommendation
-        updateTimeline('step-4', 'active', 'Calculating rebalance parameters with Risk Engine...');
-        setIsGeneratingRecommendation(true);
-
-        const recRes = await fetch('/api/recommendation', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            walletAddress: activeAddress,
-            intent: parsedIntent,
-          }),
-        });
-
-        const recData: ApiResponse<{ recommendation: Recommendation; confidentialMode: string; analysisHash: string }> =
-          await recRes.json();
-
-        if (!recData.success || !recData.data) {
-          throw new Error(recData.error || 'Recommendation generation failed');
-        }
-
-        setRecommendation(recData.data.recommendation);
-        updateTimeline(
-          'step-4',
-          'completed',
-          `Action: ${recData.data.recommendation.recommendedAction} ${recData.data.recommendation.asset} to ${(recData.data.recommendation.targetExposure * 100).toFixed(0)}%`
-        );
-      } catch (err) {
-        const message = err instanceof Error ? err.message : 'An error occurred during AI analysis';
-        setExecutionError(message);
-        updateTimeline('step-2', 'error', message);
-      } finally {
-        setIsParsingIntent(false);
-        setIsAnalyzing(false);
-        setIsGeneratingRecommendation(false);
-      }
-    },
-    [activeAddress, updateTimeline]
+      // actions
+      submitInstruction,
+      executeApprovedAction,
+      resetWorkflow,
+    }),
+    [
+      mode,
+      activeAddress,
+      walletAddress,
+      isWalletConnected,
+      isOnWrongNetwork,
+      portfolio,
+      isPortfolioLoading,
+      portfolioError,
+      portfolioQuery,
+      messages,
+      currentPrompt,
+      currentIntent,
+      isParsingIntent,
+      confidentialAnalysis,
+      isAnalyzing,
+      recommendation,
+      isGeneratingRecommendation,
+      isApprovalModalOpen,
+      openApproval,
+      isExecuting,
+      executionResult,
+      effectiveError,
+      preparedTx,
+      pendingHash,
+      receipt.isLoading,
+      effectiveTimeline,
+      activeTab,
+      isBusy,
+      submitInstruction,
+      executeApprovedAction,
+      resetWorkflow,
+    ]
   );
-
-  // Execute the approved recommendation
-  const executeApprovedAction = useCallback(async () => {
-    if (!recommendation) return;
-
-    setIsExecuting(true);
-    setExecutionError(null);
-    updateTimeline('step-5', 'completed', `User confirmed execution of ${recommendation.recommendedAction}`);
-    updateTimeline('step-6', 'active', 'Submitting transaction to Flare Coston2 testnet...');
-
-    try {
-      const contractAddress = process.env.NEXT_PUBLIC_CONTRACT_ADDRESS || '0x4981f9643d99fa1b590e8c89bf16c7f8fb173434';
-      const actionTypeValue = ACTION_TYPE_MAP[recommendation.recommendedAction] ?? 0;
-      const targetExposureBps = BigInt(Math.round(recommendation.targetExposure * 10000));
-      const recommendationHash = keccak256(toHex(recommendation.id));
-
-      let txHash: string;
-      let isSimulated = false;
-
-      // Check if user has active wallet connected to Coston2
-      if (mode === 'live' && isConnected && walletClient && chain?.id === flareTestnet.id && publicClient) {
-        // Real on-chain write
-        try {
-          const { request } = await publicClient.simulateContract({
-            account: walletClient.account,
-            address: contractAddress as `0x${string}`,
-            abi: PORTFOLIO_ACTION_AGENT_ABI,
-            functionName: 'recordAction',
-            args: [actionTypeValue, recommendation.asset, targetExposureBps, recommendationHash],
-          });
-
-          txHash = await walletClient.writeContract(request);
-          await publicClient.waitForTransactionReceipt({ hash: txHash as `0x${string}` });
-        } catch (contractErr) {
-          console.warn('Real contract call failed or contract not yet deployed on testnet, falling back to real testnet tx signature:', contractErr);
-          // Send a minimal native tx on Coston2 to ensure a real on-chain transaction hash
-          txHash = await walletClient.sendTransaction({
-            to: contractAddress as `0x${string}`,
-            value: parseEther('0.0001'),
-          });
-        }
-      } else {
-        // Demo / Fast-evaluation mode: Generate a valid cryptographic mock transaction hash
-        isSimulated = true;
-        await new Promise((resolve) => setTimeout(resolve, 1400));
-        txHash = `0x${Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join('')}`;
-      }
-
-      updateTimeline('step-6', 'completed', `Tx Hash: ${txHash.slice(0, 16)}... on Coston2`);
-      updateTimeline('step-7', 'active', 'Applying rebalance updates to portfolio state...');
-
-      // Update portfolio data to reflect the new allocation
-      if (portfolio) {
-        const updatedAssets = portfolio.assets.map((asset) => {
-          if (asset.symbol === recommendation.asset) {
-            const newAlloc = recommendation.targetExposure;
-            return {
-              ...asset,
-              allocation: newAlloc,
-              value: portfolio.totalValue * newAlloc,
-            };
-          }
-          // Adjust remaining assets proportionally
-          if (asset.symbol === 'FXRP') {
-            const newAlloc = 0.45;
-            return { ...asset, allocation: newAlloc, value: portfolio.totalValue * newAlloc };
-          }
-          if (asset.symbol === 'C2FLR') {
-            const newAlloc = 0.15;
-            return { ...asset, allocation: newAlloc, value: portfolio.totalValue * newAlloc };
-          }
-          return asset;
-        });
-
-        setPortfolio({
-          ...portfolio,
-          assets: updatedAssets,
-          riskProfile: recommendation.expectedResult.newRiskProfile,
-          lastUpdated: new Date().toISOString(),
-        });
-      }
-
-      const result: TransactionResult = {
-        success: true,
-        transactionHash: txHash,
-        network: 'Flare Testnet Coston2 (Chain ID 114)',
-        explorerUrl: `${flareTestnet.blockExplorers.default.url}/tx/${txHash}`,
-        action: recommendation.recommendedAction,
-        asset: recommendation.asset,
-        previousExposure: recommendation.currentExposure,
-        newExposure: recommendation.targetExposure,
-        timestamp: new Date().toISOString(),
-      };
-
-      setExecutionResult(result);
-      setIsApprovalModalOpen(false);
-      updateTimeline(
-        'step-7',
-        'completed',
-        `Portfolio updated! ${recommendation.asset} exposure successfully reduced to ${(recommendation.targetExposure * 100).toFixed(0)}%`
-      );
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Execution failed';
-      setExecutionError(message);
-      updateTimeline('step-6', 'error', message);
-    } finally {
-      setIsExecuting(false);
-    }
-  }, [recommendation, updateTimeline, mode, isConnected, walletClient, chain, publicClient, portfolio]);
-
-  return {
-    mode,
-    setMode,
-    activeAddress,
-    isConnected,
-    portfolio,
-    isPortfolioLoading,
-    currentPrompt,
-    currentIntent,
-    isParsingIntent,
-    confidentialAnalysis,
-    isAnalyzing,
-    recommendation,
-    isGeneratingRecommendation,
-    isApprovalModalOpen,
-    setIsApprovalModalOpen,
-    isExecuting,
-    executionResult,
-    executionError,
-    timeline,
-    activeTab,
-    setActiveTab,
-    submitInstruction,
-    executeApprovedAction,
-    resetWorkflow,
-    switchChain,
-    chain,
-  };
 }

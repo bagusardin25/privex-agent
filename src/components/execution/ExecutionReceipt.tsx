@@ -1,124 +1,124 @@
 'use client';
 
-import React, { useState } from 'react';
-import { CheckCircle2, ExternalLink, Copy, Check, ArrowRight, ShieldCheck, RefreshCw, Hash } from 'lucide-react';
+import React from 'react';
+import { CheckCircle2, Copy, ExternalLink, LoaderCircle, TriangleAlert } from 'lucide-react';
+import { Badge, Button, Panel, PanelHeader } from '@/components/ui/primitives';
 import type { TransactionResult } from '@/types';
-import { formatAddress, formatPercent } from '@/lib/utils';
 
-interface ExecutionReceiptProps {
-  result: TransactionResult | null;
+export function ExecutionReceipt({
+  result,
+  onReset,
+  isConfirming = false,
+}: {
+  result: TransactionResult;
   onReset: () => void;
-}
+  isConfirming?: boolean;
+}) {
+  const [copied, setCopied] = React.useState(false);
+  // Demo runs never broadcast, so there is no explorer link to offer.
+  const isSimulated = !result.explorerUrl;
 
-export function ExecutionReceipt({ result, onReset }: ExecutionReceiptProps) {
-  const [copied, setCopied] = useState(false);
-
-  if (!result) return null;
-
-  const handleCopy = () => {
-    navigator.clipboard.writeText(result.transactionHash);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  const copyHash = async () => {
+    try {
+      await navigator.clipboard.writeText(result.transactionHash);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard access can be denied; the hash is selectable on screen anyway.
+    }
   };
 
   return (
-    <div className="rounded-2xl bg-gradient-to-br from-slate-900 via-emerald-950/20 to-slate-900 border border-emerald-500/40 p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-300">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-5 pb-4 border-b border-slate-800">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400">
-            <CheckCircle2 className="w-6 h-6" />
-          </div>
-          <div>
-            <h3 className="text-base font-bold text-white flex items-center gap-2">
-              <span>Action Executed & Confirmed</span>
-              <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-emerald-950/80 border border-emerald-700/60 text-emerald-400">
-                On-Chain Recorded
-              </span>
-            </h3>
-            <p className="text-xs text-slate-400">
-              Transaction successfully settled on Flare Testnet Coston2
+    <Panel accent={isSimulated ? 'default' : 'cyan'}>
+      <PanelHeader
+        icon={
+          isConfirming ? (
+            <LoaderCircle className="w-4 h-4 text-sky-400 animate-spin" />
+          ) : (
+            <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+          )
+        }
+        title={isConfirming ? 'Awaiting confirmation' : 'Action recorded'}
+        subtitle={result.network}
+        action={
+          <Badge tone={isSimulated ? 'amber' : isConfirming ? 'cyan' : 'emerald'}>
+            {isSimulated ? 'Simulated' : isConfirming ? 'Pending' : 'Confirmed'}
+          </Badge>
+        }
+      />
+
+      <div className="p-5 space-y-4">
+        {isSimulated && (
+          <div className="flex items-start gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3">
+            <TriangleAlert className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+            <p className="text-[11px] text-amber-200 leading-relaxed">
+              <strong className="font-semibold">Nothing was broadcast.</strong> This receipt is a
+              demo-mode simulation and the hash below is not a real transaction.
             </p>
           </div>
-        </div>
+        )}
 
-        <button
-          onClick={onReset}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-300 transition-colors cursor-pointer"
-        >
-          <RefreshCw className="w-3.5 h-3.5" />
-          <span>New Strategy</span>
-        </button>
-      </div>
+        <dl className="grid grid-cols-2 gap-2">
+          <div className="rounded-xl border border-white/10 bg-white/3 px-3 py-2.5">
+            <dt className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
+              Action
+            </dt>
+            <dd className="text-sm font-semibold text-white mt-0.5">
+              {result.action.replace(/_/g, ' ')}
+            </dd>
+          </div>
+          <div className="rounded-xl border border-white/10 bg-white/3 px-3 py-2.5">
+            <dt className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
+              Asset
+            </dt>
+            <dd className="text-sm font-semibold text-white mt-0.5">{result.asset}</dd>
+          </div>
+          <div className="col-span-2 rounded-xl border border-white/10 bg-white/3 px-3 py-2.5">
+            <dt className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
+              Exposure change
+            </dt>
+            <dd className="text-sm font-semibold text-white mt-0.5 tabular-nums">
+              {Math.round(result.previousExposure * 100)}% →{' '}
+              <span className="text-amber-400">{Math.round(result.newExposure * 100)}%</span>
+            </dd>
+          </div>
+        </dl>
 
-      {/* Transaction Details Table */}
-      <div className="space-y-3 mb-5">
-        <div className="p-3.5 rounded-xl bg-slate-950/80 border border-slate-800">
-          <div className="flex items-center justify-between text-xs mb-2">
-            <span className="text-slate-400 flex items-center gap-1.5">
-              <Hash className="w-3.5 h-3.5 text-cyan-400" />
-              <span>Transaction Hash:</span>
+        <div className="rounded-xl border border-white/10 bg-white/3 px-3 py-2.5">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
+              Transaction hash
             </span>
-            <div className="flex items-center gap-2">
-              <span className="font-mono text-cyan-300 text-xs">
-                {formatAddress(result.transactionHash)}
-              </span>
-              <button
-                onClick={handleCopy}
-                className="p-1 hover:bg-slate-800 rounded text-slate-400 hover:text-slate-200 transition-colors cursor-pointer"
-                title="Copy Transaction Hash"
-              >
-                {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-              </button>
-            </div>
+            <button
+              onClick={copyHash}
+              className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-300 hover:text-white transition-colors cursor-pointer"
+            >
+              <Copy className="w-3 h-3" />
+              {copied ? 'Copied' : 'Copy'}
+            </button>
           </div>
-
-          <div className="flex items-center justify-between text-xs pt-2 border-t border-slate-900">
-            <span className="text-slate-400">Network:</span>
-            <span className="font-mono text-white text-xs">{result.network}</span>
-          </div>
+          <p className="font-mono text-[11px] text-slate-300 mt-1.5 break-all">
+            {result.transactionHash}
+          </p>
         </div>
 
-        {/* Before vs After Exposure Transformation */}
-        <div className="p-4 rounded-xl bg-slate-950/90 border border-slate-800">
-          <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block mb-2">
-            Portfolio Allocation Rebalance
-          </span>
-
-          <div className="flex items-center justify-between p-3 rounded-lg bg-slate-900/80 border border-slate-800">
-            <div className="text-center sm:text-left">
-              <span className="text-[10px] text-slate-400 uppercase block">Before Action</span>
-              <span className="text-sm font-bold text-rose-400 font-mono">
-                {result.asset} {formatPercent(result.previousExposure)}
-              </span>
-              <span className="text-[10px] text-slate-500 block">High Risk Violation</span>
-            </div>
-
-            <div className="p-2 rounded-full bg-slate-800 text-slate-400">
-              <ArrowRight className="w-4 h-4 text-emerald-400" />
-            </div>
-
-            <div className="text-center sm:text-right">
-              <span className="text-[10px] text-slate-400 uppercase block">After Rebalance</span>
-              <span className="text-sm font-bold text-emerald-400 font-mono">
-                {result.asset} {formatPercent(result.newExposure)}
-              </span>
-              <span className="text-[10px] text-emerald-400 block font-medium">Within Target & Safe</span>
-            </div>
-          </div>
+        <div className="flex flex-col sm:flex-row gap-2">
+          {!isSimulated && (
+            <a
+              href={result.explorerUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-amber-500 px-4 py-2.5 text-sm font-semibold text-slate-950 hover:bg-amber-400 transition-colors"
+            >
+              <span>View on Coston2 Explorer</span>
+              <ExternalLink className="w-3.5 h-3.5" />
+            </a>
+          )}
+          <Button variant="secondary" onClick={onReset} className="sm:flex-none">
+            Start a new instruction
+          </Button>
         </div>
       </div>
-
-      {/* Explorer Deep Link */}
-      <a
-        href={result.explorerUrl}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="w-full py-2.5 px-4 rounded-xl bg-slate-800/80 hover:bg-slate-800 text-xs font-semibold text-cyan-300 border border-cyan-800/40 hover:border-cyan-700 transition-all flex items-center justify-center gap-2 group"
-      >
-        <span>View On-Chain Receipt on Coston2 Explorer</span>
-        <ExternalLink className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
-      </a>
-    </div>
+    </Panel>
   );
 }
