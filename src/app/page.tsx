@@ -7,6 +7,7 @@ import {
   EyeOff,
   FileSignature,
   KeyRound,
+  Lock,
   MessageSquareText,
   ScrollText,
   ShieldCheck,
@@ -90,9 +91,12 @@ export default function LandingPage() {
       </header>
 
       <main className="flex-1 w-full">
-        {/* Hero */}
-        <section className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 pt-16 pb-20 sm:pt-24 sm:pb-28">
-          <div className="max-w-3xl">
+        {/* Hero — two columns from lg up: the claim on the left, the mechanism
+            that backs it on the right, so the page never argues for privacy
+            without showing where the boundary actually sits. */}
+        <section className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 pt-16 pb-20 sm:pt-20 sm:pb-24">
+          <div className="grid lg:grid-cols-[1.05fr_0.95fr] gap-12 lg:gap-14 items-center">
+          <div className="max-w-2xl">
             <span className="inline-flex items-center gap-2 rounded-full border border-sky-500/30 bg-sky-500/10 px-3 py-1.5 text-[11px] font-semibold text-sky-300">
               <span className="w-1.5 h-1.5 rounded-full bg-sky-400" aria-hidden="true" />
               Running on Flare Coston2 testnet
@@ -130,6 +134,76 @@ export default function LandingPage() {
             <p className="mt-4 text-xs text-slate-400">
               Demo mode needs no wallet and broadcasts nothing.
             </p>
+            </div>
+
+            {/* The mechanism, drawn. Balances sit inside the sealed middle band
+                and are deliberately unreadable; only the verdict leaves it. */}
+            <div aria-hidden="true" className="relative hidden lg:block">
+              <div className="rounded-2xl glass-panel p-5">
+                {/* In: the instruction */}
+                <p className="text-[10px] font-semibold tracking-[0.14em] text-slate-400">
+                  YOU SAY
+                </p>
+                <p className="mt-2 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-200">
+                  “Keep my XRP exposure under 40%”
+                </p>
+
+                <div className="flex items-center gap-2 py-3 pl-1">
+                  <span className="h-4 w-px bg-slate-600" />
+                  <span className="text-[10px] text-slate-400">instruction only — no balances</span>
+                </div>
+
+                {/* The sealed boundary */}
+                <div className="rounded-xl glass-panel-cyan animate-enclave-glow p-4">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[10px] font-semibold tracking-[0.14em] text-sky-300">
+                      CONFIDENTIAL ENCLAVE
+                    </span>
+                    <Lock className="w-3.5 h-3.5 text-sky-400" />
+                  </div>
+
+                  <div className="mt-3 space-y-1.5 select-none blur-[5px]">
+                    {[
+                      ['XRP', '60%', '$3,000'],
+                      ['FXRP', '30%', '$1,500'],
+                      ['C2FLR', '10%', '$500'],
+                    ].map(([sym, pct, usd]) => (
+                      <div key={sym} className="flex items-center justify-between font-mono text-xs">
+                        <span className="text-slate-200">{sym}</span>
+                        <span className="text-slate-300">{pct}</span>
+                        <span className="text-slate-300">{usd}</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  <p className="mt-3 border-t border-sky-500/20 pt-3 text-[11px] leading-relaxed text-slate-300">
+                    Balances are read here and nowhere else. They never enter a prompt and never
+                    reach the chain.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2 py-3 pl-1">
+                  <span className="h-4 w-px bg-slate-600" />
+                  <span className="text-[10px] text-slate-400">verdict only</span>
+                </div>
+
+                {/* Out: the thin on-chain record */}
+                <p className="text-[10px] font-semibold tracking-[0.14em] text-slate-400">
+                  RECORDED ON FLARE
+                </p>
+                <div className="mt-2 rounded-xl border border-amber-500/30 bg-amber-500/8 px-4 py-3">
+                  <p className="font-mono text-xs text-amber-300">
+                    REBALANCE · XRP · 4000 bps
+                  </p>
+                  <p className="mt-1.5 font-mono text-[10px] text-slate-400">
+                    hash 0x3510…2548
+                  </p>
+                </div>
+                <p className="mt-3 text-[11px] leading-relaxed text-slate-400">
+                  No amounts. No totals. No strategy.
+                </p>
+              </div>
+            </div>
           </div>
         </section>
 
