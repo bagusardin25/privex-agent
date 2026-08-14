@@ -23,11 +23,17 @@ export class FlareConfidentialProvider implements ConfidentialComputeProvider {
     console.warn('Flare TEE not fully integrated yet, falling back to local simulation.');
 
     const analysis = evaluatePortfolio(portfolio, intent);
-    
+
     return {
       analysisHash: `fcc-hash-${Date.now()}`,
       provider: this.mode,
-      attestation: 'simulated-fcc-attestation',
+      // No enclave ran, so there is no attestation to present. Returning a
+      // string that merely looks like one would be the dishonest choice.
+      attestation: undefined,
+      // Until the TEE call above is real, this remains a local computation and
+      // the UI must keep saying so — selecting `flare-fcc` does not by itself
+      // make the analysis confidential.
+      isSimulated: true,
       result: analysis,
     };
   }

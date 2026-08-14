@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { executeRequestSchema } from '@/lib/validation/schemas';
-import type { ApiResponse, TransactionResult } from '@/types';
+import type { ApiResponse } from '@/types';
 import { createPublicClient, http, keccak256, toHex, encodeFunctionData } from 'viem';
 import { flareTestnet } from '@/lib/blockchain/config';
 import { PORTFOLIO_ACTION_AGENT_ABI } from '@/lib/blockchain/contracts';

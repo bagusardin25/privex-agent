@@ -1,6 +1,8 @@
 import { z } from 'zod';
 
-export const SUPPORTED_ASSETS = ['XRP', 'FXRP', 'FLR', 'WFLR', 'USDC', 'USDT'] as const;
+// Must stay in sync with the allowlist in contracts/PortfolioActionAgent.sol —
+// an asset accepted here but missing on-chain reverts with UnsupportedAsset.
+export const SUPPORTED_ASSETS = ['XRP', 'FXRP', 'FLR', 'WFLR', 'C2FLR', 'USDC', 'USDT'] as const;
 const RISK_PROFILES = ['LOW', 'MEDIUM', 'HIGH'] as const;
 const ACTION_TYPES = ['REBALANCE', 'REDUCE_EXPOSURE', 'INCREASE_EXPOSURE', 'HOLD'] as const;
 

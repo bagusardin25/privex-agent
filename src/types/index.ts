@@ -79,6 +79,23 @@ export interface TransactionResult {
   timestamp: string;
 }
 
+// Chat AI console
+export type ChatRole = 'user' | 'agent';
+
+export interface ChatMessage {
+  id: string;
+  role: ChatRole;
+  /** Rendered body of the message. */
+  content: string;
+  timestamp: string;
+  /** Set on agent messages that resolved to a structured intent. */
+  intent?: FinancialIntent;
+  /** Marks an agent message as a failure so it can be styled as such. */
+  isError?: boolean;
+  /** True while the agent is still working on this message. */
+  isPending?: boolean;
+}
+
 // Activity timeline
 export interface ActivityStep {
   id: string;
@@ -93,6 +110,13 @@ export interface ConfidentialResult {
   analysisHash: string;
   provider: 'development' | 'flare-fcc';
   attestation?: string;
+  /**
+   * True when the analysis ran locally rather than inside an attested TEE.
+   * Both current providers set this: the development provider is a mock, and
+   * the Flare provider is still a stub that falls back to local execution.
+   * The UI must surface this so a simulated run is never shown as a real one.
+   */
+  isSimulated: boolean;
   result: RiskAnalysis;
 }
 

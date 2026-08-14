@@ -17,6 +17,7 @@ export class DevConfidentialProvider implements ConfidentialComputeProvider {
       analysisHash: `mock-hash-${Date.now()}`,
       provider: this.mode,
       attestation: 'fake-attestation-for-dev-only',
+      isSimulated: true,
       result: analysis,
     };
   }

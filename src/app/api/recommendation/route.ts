@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { analyzeRequestSchema } from '@/lib/validation/schemas';
 import { getPortfolio } from '@/lib/portfolio/portfolio-service';
-import { evaluatePortfolio, generateRecommendation } from '@/lib/risk/risk-engine';
+import { generateRecommendation } from '@/lib/risk/risk-engine';
 import { getConfidentialProvider } from '@/lib/privacy/confidential-provider';
 import type { ApiResponse, Recommendation } from '@/types';
 
