@@ -1,33 +1,25 @@
 'use client';
 
 import React, { useState } from 'react';
-import { WagmiProvider, createConfig, http } from 'wagmi';
-import { injected } from 'wagmi/connectors';
+import { WagmiProvider } from 'wagmi';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { flareTestnet } from '@/lib/blockchain/config';
+import { wagmiConfig } from '@/lib/blockchain/wagmi-config';
 
-export const wagmiConfig = createConfig({
-  chains: [flareTestnet],
-  connectors: [
-    injected({
-      target: 'metaMask',
-    }),
-    injected(),
-  ],
-  transports: {
-    [flareTestnet.id]: http('https://coston2-api.flare.network/ext/C/rpc'),
-  },
-  ssr: true,
-});
-
+/**
+ * Client boundary for all Web3 state.
+ *
+ * The QueryClient is created inside state so each browser session gets its own
+ * cache and it is never shared across requests during SSR.
+ */
 export function Web3Provider({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(
     () =>
       new QueryClient({
         defaultOptions: {
           queries: {
-            refetchOnWindowFocus: false,
+            staleTime: 30_000,
             retry: 1,
+            refetchOnWindowFocus: false,
           },
         },
       })
@@ -35,9 +27,7 @@ export function Web3Provider({ children }: { children: React.ReactNode }) {
 
   return (
     <WagmiProvider config={wagmiConfig}>
-      <QueryClientProvider client={queryClient}>
-        {children}
-      </QueryClientProvider>
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
     </WagmiProvider>
   );
 }
