@@ -1,0 +1,141 @@
+{
+  "source": {
+    "name": "Flare Developer Hub",
+    "index": "https://dev.flare.network/llms.txt",
+    "fetched_via": "OpenAI web fetch",
+    "fetched_at": "2026-08-14"
+  },
+  "description": "Structured manifest of the official Flare documentation most relevant to building the Private AI Financial Agent. URLs point to the original official documentation.",
+  "sections": {
+    "core": [
+      {
+        "title": "Flare Developer Hub",
+        "url": "https://dev.flare.network/"
+      },
+      {
+        "title": "Network Overview",
+        "url": "https://dev.flare.network/network/overview.md"
+      },
+      {
+        "title": "Developer Tools",
+        "url": "https://dev.flare.network/network/developer-tools.md"
+      },
+      {
+        "title": "Hardhat and Foundry Starter Kit",
+        "url": "https://dev.flare.network/network/guides/hardhat-foundry-starter-kit.md"
+      },
+      {
+        "title": "Flare for React Developers",
+        "url": "https://dev.flare.network/network/guides/flare-for-react-developers.md"
+      }
+    ],
+    "confidential_compute": [
+      {
+        "title": "Flare Confidential Compute",
+        "url": "https://dev.flare.network/fcc/overview.md"
+      },
+      {
+        "title": "Build Your First Extension",
+        "url": "https://dev.flare.network/fcc/guides/getting-started.md"
+      },
+      {
+        "title": "Private Key Extension",
+        "url": "https://dev.flare.network/fcc/guides/sign-extension.md"
+      },
+      {
+        "title": "Weather Insurance Extension",
+        "url": "https://dev.flare.network/fcc/guides/weather-insurance-extension.md"
+      },
+      {
+        "title": "Confidential Compute Troubleshooting",
+        "url": "https://dev.flare.network/fcc/troubleshooting.md"
+      }
+    ],
+    "ftso": [
+      {
+        "title": "FTSOv2 Overview",
+        "url": "https://dev.flare.network/ftso/overview.md"
+      },
+      {
+        "title": "FTSOv2 Getting Started",
+        "url": "https://dev.flare.network/ftso/getting-started.md"
+      },
+      {
+        "title": "FTSOv2 Feeds",
+        "url": "https://dev.flare.network/ftso/feeds.md"
+      },
+      {
+        "title": "Read Feeds Offchain",
+        "url": "https://dev.flare.network/ftso/guides/read-feeds-offchain.md"
+      }
+    ],
+    "fdc": [
+      {
+        "title": "FDC Overview",
+        "url": "https://dev.flare.network/fdc/overview.md"
+      },
+      {
+        "title": "FDC Getting Started",
+        "url": "https://dev.flare.network/fdc/getting-started.md"
+      },
+      {
+        "title": "FDC Attestation Types",
+        "url": "https://dev.flare.network/fdc/attestation-types.md"
+      },
+      {
+        "title": "XRPL Payment Attestation",
+        "url": "https://dev.flare.network/fdc/attestation-types/xrp-payment.md"
+      },
+      {
+        "title": "FDC Proof of Reserves Example",
+        "url": "https://dev.flare.network/fdc/guides/foundry/proof-of-reserves.md"
+      }
+    ],
+    "fxrp_fassets": [
+      {
+        "title": "FAssets Overview",
+        "url": "https://dev.flare.network/fassets/overview.md"
+      },
+      {
+        "title": "FXRP Overview",
+        "url": "https://dev.flare.network/fxrp/overview.md"
+      },
+      {
+        "title": "Mint FXRP",
+        "url": "https://dev.flare.network/fassets/developer-guides/fassets-mint.md"
+      },
+      {
+        "title": "Redeem FXRP by Amount",
+        "url": "https://dev.flare.network/fassets/developer-guides/fassets-redeem-amount.md"
+      },
+      {
+        "title": "FXRP Operational Parameters",
+        "url": "https://dev.flare.network/fxrp/parameters.md"
+      }
+    ],
+    "smart_accounts": [
+      {
+        "title": "Flare Smart Accounts Overview",
+        "url": "https://dev.flare.network/smart-accounts/overview.md"
+      },
+      {
+        "title": "Custom Instruction",
+        "url": "https://dev.flare.network/smart-accounts/custom-instruction.md"
+      },
+      {
+        "title": "TypeScript + Viem Guides",
+        "url": "https://dev.flare.network/smart-accounts/guides/typescript-viem.md"
+      }
+    ],
+    "ai_developer_tools": [
+      {
+        "title": "Flare AI Skills",
+        "url": "https://dev.flare.network/network/guides/flare-ai-skills.md"
+      },
+      {
+        "title": "Flare Developer Hub MCP Server",
+        "url": "https://dev.flare.network/network/guides/flare-developer-hub-mcp-server.md"
+      }
+    ]
+  }
+}
