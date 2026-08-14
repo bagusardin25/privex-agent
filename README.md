@@ -37,8 +37,9 @@ What actually lands on-chain is deliberately thin: action type, asset symbol, ta
 ## Why Flare
 
 - **Confidential Compute** is the reason this product can exist. The risk evaluation is the one step that must see real balances, and it is the one step designed to run inside a TEE rather than in a prompt or a public contract. The whole architecture is built around that boundary. *(See [Honest status](#honest-status) — the enclave execution itself is not yet live.)*
+- **FTSOv2 prices every position.** The portfolio holds *quantities*; their USD value — and therefore every allocation percentage the risk engine tests — is read live from Flare's oracle at request time. The 60% XRP exposure that triggers a breach is an oracle-derived number, not a constant in the source. Feeds used: `FLR/USD`, `XRP/USD`, `USDC/USD`, `USDT/USD`. The `FtsoV2` address is resolved at runtime through the `FlareContractRegistry` rather than hardcoded, so the app survives Flare's contract upgrades.
 - **Coston2** hosts the on-chain audit trail, giving a verifiable record of approved decisions without publishing the financial data behind them.
-- **FAssets / XRPFi context** — the supported-asset allowlist covers `XRP`, `FXRP`, `FLR`, `WFLR`, `C2FLR`, `USDC`, `USDT`, so the same flow extends naturally to bridged XRP positions on Flare.
+- **FAssets / XRPFi context** — the supported-asset allowlist covers `XRP`, `FXRP`, `FLR`, `WFLR`, `C2FLR`, `USDC`, `USDT`, and `FXRP` is priced off the `XRP/USD` feed as a 1:1 FAsset representation, so the same flow extends naturally to bridged XRP positions on Flare.
 
 ---
 
@@ -51,7 +52,8 @@ Browser (Next.js client)
 /api/ai/parse-intent ──► AIProvider (OpenRouter | OpenAI | Gemini)
    │                        └─ output validated with Zod, rejected if malformed
    ▼  FinancialIntent { asset, maxExposure, riskProfile, action }
-/api/portfolio/analyze ──► ConfidentialComputeProvider
+/api/portfolio/analyze ──► FTSOv2 (via FlareContractRegistry) ──► prices quantities
+   │                    └─► ConfidentialComputeProvider
    │                        ├─ DevConfidentialProvider    (local mock)
    │                        └─ FlareConfidentialProvider  (TEE adapter — stub)
    ▼  RiskAnalysis (verdict only; balances never returned)
@@ -74,6 +76,7 @@ The client never fabricates what gets written: `/api/execute` owns the action→
 contracts/          PortfolioActionAgent.sol, deploy script, Hardhat tests
 src/app/            Landing (/), dashboard (/dashboard), API routes
 src/lib/ai/         Provider abstraction + system prompt + Zod schemas
+src/lib/flare/      FTSOv2 reader — registry lookup, feed IDs, price cache
 src/lib/privacy/    ConfidentialComputeProvider interface + two implementations
 src/lib/risk/       Deterministic risk engine (no LLM involvement)
 src/lib/blockchain/ Chain config, contract ABI, wagmi config
@@ -106,6 +109,7 @@ This section exists because the project's own engineering rules require it, and 
 
 ### Real, working, verifiable
 - End-to-end flow from natural language to a signed Coston2 transaction.
+- **Live FTSOv2 pricing.** Four feeds are read through the `FlareContractRegistry` on every portfolio load, with a 20s cache. Allocations shift with the market, so the risk verdict is genuinely oracle-driven. If the oracle is unreachable the app falls back to static prices and says so on screen rather than passing them off as live.
 - Contract deployed and live on Coston2 (address above); `getSupportedAssets()` returns all seven assets on-chain.
 - LLM intent parsing with strict Zod validation — malformed or unsafe output is rejected, not patched.
 - Deterministic risk engine, independent of the model and unit-testable.
@@ -115,7 +119,7 @@ This section exists because the project's own engineering rules require it, and 
 
 ### Not real yet — stated plainly
 - **The confidential enclave does not execute in a TEE.** Both providers currently compute locally. `DevConfidentialProvider` is an explicit mock; `FlareConfidentialProvider` is an adapter stub that falls back to local execution and **returns no attestation**. The UI marks every such run as `simulated` and says so on screen regardless of which provider is selected — choosing `flare-fcc` does not buy a green badge.
-- **Portfolio data is demo data.** `getPortfolio()` returns a fixed sample portfolio. The interface is ready for real on-chain indexing; the indexer is not built.
+- **Portfolio holdings are demo data.** The *quantities* are a fixed sample; their *valuation* is live FTSOv2 data. The interface is ready for real on-chain indexing; the indexer is not built.
 - **Recording an action is not a trade.** The contract writes an audit entry. It does not swap, rebalance, or move any asset.
 - **`cancelAction` is currently unreachable.** `recordAction` stores actions as `EXECUTED`, so the `PENDING` state never occurs and every cancel attempt reverts with `ActionAlreadyFinalized`. The test suite documents this rather than hiding it. Fixing it means storing `PENDING` and adding a separate finalisation step.
 - **No rate limiting** on the AI endpoint yet.
@@ -164,7 +168,7 @@ Hosted at **[privex-agent.vercel.app](https://privex-agent.vercel.app)** — no 
 
 1. Open `/` — the landing page states the privacy claim and its limits.
 2. Click **Try it in demo mode** → `/dashboard`.
-3. The demo portfolio loads: **$5,000** — XRP 60%, FXRP 30%, C2FLR 10%.
+3. The demo portfolio loads — 3,000 XRP, 1,500 FXRP, 83,333 C2FLR — **priced live by FTSOv2**, so the total and the percentages move with the oracle (roughly $4,990 and 60/30/10 at the time of writing). The panel names the feeds and links the `FtsoV2` contract it read.
 4. Send: *"Keep my XRP exposure under 40%"*.
 5. Watch the intent get parsed into `{ asset: XRP, maxExposure: 0.4, riskProfile: MEDIUM, action: REBALANCE }`, shown as chips so a misreading is caught before anything proceeds.
 6. The enclave panel runs and reports **limit breach detected** — 60% against a 40% cap, delta −20% — with the simulation notice visible.
@@ -181,8 +185,8 @@ Switch **Demo → Live** in the header, connect a Coston2-funded wallet, and ste
 1. **Replace the enclave stub with real Flare Confidential Compute**, returning a genuine hardware attestation that the UI can verify — the single highest-value next step.
 2. **Real portfolio indexing** to replace demo data, behind the existing `getPortfolio()` interface.
 3. **Fix the action lifecycle** so `PENDING → EXECUTED / CANCELLED` is reachable and `cancelAction` works.
-4. **FTSO price feeds** to value positions from live oracle data rather than static figures.
-5. **FDC attestations** to prove off-chain portfolio state at the moment a decision was made.
+4. **FDC attestations** to prove off-chain portfolio state at the moment a decision was made.
+5. **Anchor the FTSO round** in the on-chain record, so an audit entry proves which oracle prices the decision was made against.
 6. **Rate limiting and replay protection** on the AI and approval endpoints.
 
 ---

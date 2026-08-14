@@ -3,7 +3,20 @@ export interface PortfolioAsset {
   symbol: string;
   name: string;
   allocation: number; // 0-1 (percentage as decimal)
-  value: number; // USD value
+  value: number; // USD value, derived from quantity × oracle price
+  quantity: number; // units held — the holding itself; value is computed
+  unitPrice: number; // USD per unit, as quoted by FTSOv2
+}
+
+/**
+ * Where the USD figures in a portfolio came from. Allocations drive every risk
+ * verdict, so their provenance travels with them rather than being assumed.
+ */
+export interface PricingSource {
+  source: 'ftsov2' | 'fallback';
+  ftsoAddress?: string;
+  feedTimestamp?: number;
+  feeds: { name: string; price: number; decimals: number }[];
 }
 
 export interface Portfolio {
@@ -11,6 +24,7 @@ export interface Portfolio {
   assets: PortfolioAsset[];
   riskProfile: RiskProfile;
   lastUpdated: string;
+  pricing: PricingSource;
 }
 
 export type RiskProfile = 'LOW' | 'MEDIUM' | 'HIGH';

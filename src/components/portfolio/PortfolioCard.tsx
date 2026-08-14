@@ -1,10 +1,13 @@
 'use client';
 
 import React from 'react';
-import { Eye, EyeOff, PieChart, RefreshCw, WalletMinimal } from 'lucide-react';
+import { Eye, EyeOff, PieChart, Radio, RefreshCw, WalletMinimal } from 'lucide-react';
 import { Badge, Panel, PanelHeader, Skeleton } from '@/components/ui/primitives';
 import type { Portfolio, RiskProfile } from '@/types';
 import type { AgentMode } from '@/hooks/useFinancialAgent';
+import { flareTestnet } from '@/lib/blockchain/config';
+
+const EXPLORER_URL = flareTestnet.blockExplorers.default.url;
 
 const RISK_TONE: Record<RiskProfile, 'emerald' | 'amber' | 'rose'> = {
   LOW: 'emerald',
@@ -29,6 +32,16 @@ const currency = new Intl.NumberFormat('en-US', {
   style: 'currency',
   currency: 'USD',
   maximumFractionDigits: 0,
+});
+
+const quantity = new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 });
+
+/** Sub-cent assets like FLR need more precision than a currency formatter gives. */
+const unitPrice = new Intl.NumberFormat('en-US', {
+  style: 'currency',
+  currency: 'USD',
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 6,
 });
 
 export function PortfolioCard({
@@ -170,13 +183,17 @@ export function PortfolioCard({
                         {asset.symbol}
                       </p>
                       <p className="text-[11px] text-slate-400 leading-tight truncate">
-                        {asset.name}
+                        {/* Quantity is the holding; the price beside it is the
+                            oracle quote that turns it into an allocation. */}
+                        {valuesHidden
+                          ? asset.name
+                          : `${quantity.format(asset.quantity)} × ${unitPrice.format(asset.unitPrice)}`}
                       </p>
                     </div>
                   </div>
                   <div className="text-right shrink-0">
                     <p className="text-sm font-semibold text-white tabular-nums leading-tight">
-                      {Math.round(asset.allocation * 100)}%
+                      {(asset.allocation * 100).toFixed(1)}%
                     </p>
                     <p className="text-[11px] text-slate-400 tabular-nums leading-tight">
                       {valuesHidden ? '••••' : currency.format(asset.value)}
@@ -186,10 +203,53 @@ export function PortfolioCard({
               ))}
             </ul>
 
-            <p className="mt-4 pt-4 border-t border-white/8 text-[11px] text-slate-400">
-              These figures stay on your side of the enclave. Only the action type, asset, and
-              target percentage are ever written on-chain.
-            </p>
+            {/* Pricing provenance. Allocations decide every risk verdict, so
+                where the prices came from is shown, not assumed. */}
+            <div className="mt-4 pt-4 border-t border-white/8">
+              {portfolio.pricing.source === 'ftsov2' ? (
+                <div className="rounded-xl border border-sky-500/30 bg-sky-500/10 px-3 py-2.5">
+                  <div className="flex items-center gap-2">
+                    <Radio className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                    <p className="text-[11px] font-semibold text-sky-300">
+                      Priced live by Flare FTSOv2
+                    </p>
+                  </div>
+                  <p className="mt-1.5 text-[11px] leading-relaxed text-slate-300">
+                    {portfolio.pricing.feeds.map((f) => f.name).join(' · ')}
+                  </p>
+                  {portfolio.pricing.ftsoAddress && (
+                    <a
+                      href={`${EXPLORER_URL}/address/${portfolio.pricing.ftsoAddress}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mt-1.5 inline-block font-mono text-[10px] text-slate-400 underline underline-offset-2 hover:text-sky-300 transition-colors"
+                    >
+                      {portfolio.pricing.ftsoAddress.slice(0, 10)}…
+                      {portfolio.pricing.ftsoAddress.slice(-6)}
+                      {portfolio.pricing.feedTimestamp
+                        ? ` · round ${new Date(
+                            portfolio.pricing.feedTimestamp * 1000
+                          ).toUTCString().slice(17, 25)} UTC`
+                        : ''}
+                    </a>
+                  )}
+                </div>
+              ) : (
+                <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2.5">
+                  <p className="text-[11px] font-semibold text-amber-300">
+                    FTSO unreachable — using fallback prices
+                  </p>
+                  <p className="mt-1 text-[11px] leading-relaxed text-slate-300">
+                    These figures are not oracle-derived. Reload to try the feed again.
+                  </p>
+                </div>
+              )}
+
+              <p className="mt-3 text-[11px] text-slate-400">
+                Quantities stay on your side of the enclave. Only the action type, asset, and
+                target percentage are ever written on-chain.
+              </p>
+            </div>
           </>
         )}
       </div>

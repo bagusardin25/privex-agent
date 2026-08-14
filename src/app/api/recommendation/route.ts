@@ -36,7 +36,7 @@ export async function POST(request: NextRequest) {
     const { walletAddress, intent } = parsed.data;
 
     // Get portfolio
-    const portfolio = getPortfolio(walletAddress);
+    const portfolio = await getPortfolio(walletAddress);
 
     // Run confidential analysis
     const provider = getConfidentialProvider();

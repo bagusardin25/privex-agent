@@ -36,7 +36,7 @@ export async function POST(request: NextRequest) {
     const { walletAddress, intent } = parsed.data;
 
     // Get portfolio (demo data for MVP)
-    const portfolio = getPortfolio(walletAddress);
+    const portfolio = await getPortfolio(walletAddress);
 
     // Get confidential compute provider
     const provider = getConfidentialProvider();

@@ -35,7 +35,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(response, { status: 400 });
     }
 
-    const portfolio = getPortfolio(walletAddress);
+    const portfolio = await getPortfolio(walletAddress);
 
     const response: ApiResponse<Portfolio & { mode: string }> = {
       success: true,
