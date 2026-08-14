@@ -48,3 +48,6 @@ next-env.d.ts
 *.md
 !README.md
 !tentang_project.md
+
+.vercel
+.env*

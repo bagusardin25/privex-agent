@@ -6,6 +6,7 @@ Built for the [Flare Summer Signal](https://dorahacks.io/hackathon/flaresummersi
 
 | | |
 |---|---|
+| **Live demo** | **[privex-agent.vercel.app](https://privex-agent.vercel.app)** — open it and click *Try it in demo mode*; no wallet needed, nothing is broadcast |
 | **Network** | Flare Testnet (Coston2), chain ID `114` |
 | **Contract** | [`0x21e908dc15cb5Dbd659f107DC0058Fe2D762E385`](https://coston2-explorer.flare.network/address/0x21e908dc15cb5Dbd659f107DC0058Fe2D762E385) |
 | **Deploy tx** | [`0x7b83ffe3ef99d2a660f200f70e72bac487c78285daabc98fe34c1b9c72234883`](https://coston2-explorer.flare.network/tx/0x7b83ffe3ef99d2a660f200f70e72bac487c78285daabc98fe34c1b9c72234883) |
@@ -158,6 +159,8 @@ Get testnet C2FLR from the [Coston2 faucet](https://faucet.flare.network/coston2
 ---
 
 ## Two-minute demo
+
+Hosted at **[privex-agent.vercel.app](https://privex-agent.vercel.app)** — no install required.
 
 1. Open `/` — the landing page states the privacy claim and its limits.
 2. Click **Try it in demo mode** → `/dashboard`.
