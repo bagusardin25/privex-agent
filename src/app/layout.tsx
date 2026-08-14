@@ -29,7 +29,7 @@ export default function RootLayout({
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} dark antialiased`}
     >
-      <body className="min-h-screen bg-[#090D16] text-[#F8FAFC] flex flex-col selection:bg-amber-500/20 selection:text-amber-300">
+      <body className="min-h-screen text-[#F8FAFC] flex flex-col selection:bg-amber-500/20 selection:text-amber-300">
         <Web3Provider>{children}</Web3Provider>
       </body>
     </html>
